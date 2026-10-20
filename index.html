@@ -5,7 +5,7 @@
     <title>WANINT</title>
     <style>
         /* ==========================================================================
-           ★ カスタム設定: 左右カードの個別カラー
+           ★ カスタム設定: 各カードの個別カラー
            ========================================================================== */
         :root {
             /* 左側カード（A / EASY / 選択肢A）の設定 */
@@ -13,10 +13,15 @@
             --bg-left: rgba(236, 253, 245, 0.75); /* 背景色 */
             --glow-left: rgba(77, 255, 166, 0.8); /* 選択時の発光色 */
 
-            /* 右側カード（B / HARD / 選択肢B）の設定 */
+            /* 右側・中央カード（B / HARD / 選択肢B）の設定 */
             --color-right: #1d4ed8; /* 枠線・ラベル文字色 */
             --bg-right: rgba(239, 246, 255, 0.75); /* 背景色 */
             --glow-right: rgba(77, 166, 255, 0.8); /* 選択時の発光色 */
+
+            /* 3つ目のカード（ジャンルC）の設定 */
+            --color-third: #b91c1c; /* 枠線・ラベル文字色 */
+            --bg-third: rgba(254, 242, 242, 0.75); /* 背景色 */
+            --glow-third: rgba(255, 99, 99, 0.8); /* 選択時の発光色 */
         }
 
         /* ==========================================================================
@@ -197,16 +202,16 @@
         }
         .card-container {
             display: flex;
-            gap: 4vw;
+            gap: 3.5vw;
             justify-content: center;
             align-items: center;
-            max-width: 90vw;
+            max-width: 92vw;
         }
         .select-card {
             width: 45vh;
             height: 45vh;
-            max-width: 60vw;
-            max-height: 60vw;
+            max-width: 40vw;
+            max-height: 40vw;
             background: rgba(0, 0, 0, 0.65);
             border: 0.8vh solid #fff;
             border-radius: 3vh;
@@ -217,7 +222,32 @@
             font-weight: bold;
             box-shadow: 0 2vh 2.5vh rgba(0, 0, 0, 0.9);
             box-sizing: border-box;
+            transition: transform 0.25s ease, opacity 0.25s ease, box-shadow 0.25s ease;
         }
+        /* ジャンル選択画面（3枚並び）用のサイズ調整とフォーカス演出 */
+        #genre-cards .select-card {
+            width: 36vh;
+            height: 36vh;
+            max-width: 26vw;
+            max-height: 26vw;
+            opacity: 0.45;
+            transform: scale(0.9);
+        }
+        #genre-cards .select-card.is-focused {
+            opacity: 1;
+            transform: scale(1.08);
+            z-index: 15;
+        }
+        #genre-cards .select-card.card-left.is-focused {
+            box-shadow: 0 0 3.5vh var(--glow-left), 0 2vh 2.5vh rgba(0, 0, 0, 0.9);
+        }
+        #genre-cards .select-card.card-right.is-focused {
+            box-shadow: 0 0 3.5vh var(--glow-right), 0 2vh 2.5vh rgba(0, 0, 0, 0.9);
+        }
+        #genre-cards .select-card.card-third.is-focused {
+            box-shadow: 0 0 3.5vh var(--glow-third), 0 2vh 2.5vh rgba(0, 0, 0, 0.9);
+        }
+
         .key-guide {
             margin-top: 5vh;
             font-size: 3vh;
@@ -325,7 +355,7 @@
             border-radius: 1vh;
         }
         /* ==========================================================================
-           ★ 左右カードのカラー適用クラス
+           ★ 各カードのカラー適用クラス
            ========================================================================== */
         .card-left {
             border-color: var(--color-left) !important;
@@ -341,6 +371,14 @@
         }
         .card-right .option-label {
             color: var(--color-right) !important;
+        }
+
+        .card-third {
+            border-color: var(--color-third) !important;
+            background-color: var(--bg-third) !important;
+        }
+        .card-third .option-label {
+            color: var(--color-third) !important;
         }
 
         /* --------------------------------------------------------------------------
@@ -403,6 +441,8 @@
         // ==========================================================================
         const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQbRsUm7p9ttAa6NSNEM-YIRj9Ah7iv4izikbgCemvecrlIMGMl4H80D3wljAFeFHAdFxAoySIBJCkb/pub?gid=0&single=true&output=csv";
         
+        const GENRE_LIST = ["A", "B", "C"];
+
         const GAME_STATES = {
             TITLE: "TITLE",
             GENRE: "GENRE",
@@ -504,6 +544,7 @@
         let currentMediaVideo = null;
         let isAuthenticated = false;
         let isAnimating = false;
+        let currentGenreIndex = 0;
         let selectedGenre = "";
         let selectedDifficulty = "";
         let questionCount = 0;
@@ -555,22 +596,37 @@
             }
         }
         
+        function normalizeAlpha(str) {
+            return str
+                .replace(/[Ａ-Ｚａ-ｚ]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+                .toUpperCase()
+                .trim();
+        }
+
         function parseCSV(text) {
-            const lines = text.trim().split("\n");
+            const lines = text.trim().split(/\r?\n/);
             questionDatabase = [];
             for (let i = 1; i < lines.length; i++) {
                 if (!lines[i].trim()) continue;
                 const cols = lines[i].split(",").map(col => col.trim().replace(/^"|"$/g, ''));
                 if (cols.length >= 7) {
-                    questionDatabase.push({
-                        genre: cols[0].toUpperCase(),
-                        difficulty: cols[1].toUpperCase(),
-                        step: parseInt(cols[2], 10),
-                        question: cols[3],
-                        optionA: cols[4],
-                        optionB: cols[5],
-                        answer: cols[6].toUpperCase()
-                    });
+                    const genreVal = normalizeAlpha(cols[0]);
+                    const diffVal = normalizeAlpha(cols[1]);
+                    const stepVal = parseInt(cols[2], 10);
+                    const ansVal = normalizeAlpha(cols[6]);
+
+                    // ジャンルA〜Cの3つを識別して格納
+                    if (GENRE_LIST.includes(genreVal) && !isNaN(stepVal)) {
+                        questionDatabase.push({
+                            genre: genreVal,
+                            difficulty: diffVal,
+                            step: stepVal,
+                            question: cols[3],
+                            optionA: cols[4],
+                            optionB: cols[5],
+                            answer: ansVal
+                        });
+                    }
                 }
             }
         }
@@ -654,6 +710,17 @@
         // ==========================================================================
         // 4. UI・クイズロジック関連関数
         // ==========================================================================
+        function updateGenreFocus() {
+            const genreCards = document.querySelectorAll("#genre-cards .select-card");
+            genreCards.forEach((card, idx) => {
+                if (idx === currentGenreIndex) {
+                    card.classList.add("is-focused");
+                } else {
+                    card.classList.remove("is-focused");
+                }
+            });
+        }
+
         function updateStageIndicator() {
             for (let i = 1; i <= 5; i++) {
                 const slot = document.getElementById(`stage-slot-${i}`);
@@ -721,11 +788,10 @@
             const container = document.getElementById(containerId);
             const cards = container.querySelectorAll(cardSelector);
             if (!cards || cards.length < 2) {
-                if(callback) callback();
+                if (callback) callback();
                 return;
             }
             const selectedCard = cards[selectedIndex];
-            const unselectedCard = cards[selectedIndex === 0 ? 1 : 0];
 
             let highlightColor = "#ffd700";
             let glowColor = "rgba(255, 215, 0, 0.8)";
@@ -736,11 +802,19 @@
             } else if (selectedCard.classList.contains('card-right')) {
                 highlightColor = getComputedStyle(document.documentElement).getPropertyValue('--color-right').trim();
                 glowColor = getComputedStyle(document.documentElement).getPropertyValue('--glow-right').trim();
+            } else if (selectedCard.classList.contains('card-third')) {
+                highlightColor = getComputedStyle(document.documentElement).getPropertyValue('--color-third').trim();
+                glowColor = getComputedStyle(document.documentElement).getPropertyValue('--glow-third').trim();
             }
 
-            unselectedCard.style.transition = "opacity 0.4s ease, transform 0.4s ease";
-            unselectedCard.style.opacity = "0";
-            unselectedCard.style.transform = "scale(0.8)";
+            // 選択されなかった全てのカードをフェードアウト（3枚以上にも対応）
+            cards.forEach((card, idx) => {
+                if (idx !== selectedIndex) {
+                    card.style.transition = "opacity 0.4s ease, transform 0.4s ease";
+                    card.style.opacity = "0";
+                    card.style.transform = "scale(0.8)";
+                }
+            });
             
             const rect = selectedCard.getBoundingClientRect();
             const cardCenterX = rect.left + rect.width / 2;
@@ -750,7 +824,8 @@
             const moveX = screenCenterX - cardCenterX;
             const moveY = screenCenterY - cardCenterY;
             
-            selectedCard.style.transition = "transform 0.5s cubic-bezier(0.25, 1, 0.5, 1), border-color 0.3s, background-color 0.3s, box-shadow 0.3s";
+            selectedCard.style.transition = "transform 0.5s cubic-bezier(0.25, 1, 0.5, 1), border-color 0.3s, background-color 0.3s, box-shadow 0.3s, opacity 0.3s";
+            selectedCard.style.opacity = "1";
             selectedCard.style.transform = `translate(${moveX}px, ${moveY}px) scale(1.2)`;
             selectedCard.style.setProperty("border-color", highlightColor, "important");
             selectedCard.style.backgroundColor = "rgba(255, 255, 255, 0.35)";
@@ -758,7 +833,7 @@
             selectedCard.style.zIndex = "20";
             
             setTimeout(() => {
-                if(callback) callback();
+                if (callback) callback();
             }, 1200);
         }
         
@@ -857,6 +932,8 @@
             if (targetState === GAME_STATES.TITLE) {
                 document.getElementById("ui-title").classList.remove("hidden");
             } else if (targetState === GAME_STATES.GENRE) {
+                currentGenreIndex = 0;
+                updateGenreFocus();
                 document.getElementById("ui-genre").classList.remove("hidden");
             } else if (targetState === GAME_STATES.DIFFICULTY) {
                 document.getElementById("ui-difficulty").classList.remove("hidden");
@@ -931,16 +1008,15 @@
             }
             else if (currentState === GAME_STATES.GENRE) {
                 if (e.code === "Space") {
-                    isAnimating = true;
-                    animateSelection("genre-cards", ".select-card", 0, () => {
-                        selectedGenre = "A";
-                        isAnimating = false;
-                        changeState(GAME_STATES.DIFFICULTY);
-                    });
+                    // Spaceで選択遷移（A -> B -> C -> A）
+                    currentGenreIndex = (currentGenreIndex + 1) % GENRE_LIST.length;
+                    updateGenreFocus();
                 } else if (e.code === "Enter") {
+                    // Enterで現在フォーカス中のジャンルを決定
                     isAnimating = true;
-                    animateSelection("genre-cards", ".select-card", 1, () => {
-                        selectedGenre = "B";
+                    const chosenIndex = currentGenreIndex;
+                    selectedGenre = GENRE_LIST[chosenIndex];
+                    animateSelection("genre-cards", ".select-card", chosenIndex, () => {
                         isAnimating = false;
                         changeState(GAME_STATES.DIFFICULTY);
                     });
@@ -1064,10 +1140,11 @@
     <div id="ui-genre" class="ui-layer hidden">
         <h2 class="section-title">SELECT GENRE</h2>
         <div id="genre-cards" class="card-container">
-            <div class="select-card card-left">A</div>
+            <div class="select-card card-left is-focused">A</div>
             <div class="select-card card-right">B</div>
+            <div class="select-card card-third">C</div>
         </div>
-        <p class="key-guide">[ SPACE ]: 左を選択 / [ ENTER ]: 右を選択</p>
+        <p class="key-guide">[ SPACE ]: 選択移動 / [ ENTER ]: 決定</p>
     </div>
     <div id="ui-difficulty" class="ui-layer hidden">
         <h2 class="section-title">SELECT DIFFICULTY</h2>
